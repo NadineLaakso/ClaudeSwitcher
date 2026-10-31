@@ -307,22 +307,42 @@ function stopInstance(id) {
 // ---------------------------------------------------------------------------
 let mainWindow = null;
 let quitting = false;
-function createWindow({ show = true } = {}) {
+// A compact panel that pops up above the tray icon — no taskbar button.
+const PANEL_W = 460, PANEL_H = 540;
+function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 980, height: 660, minWidth: 720, minHeight: 480, show,
+    width: PANEL_W, height: PANEL_H, show: false, frame: false, resizable: false,
+    skipTaskbar: true, alwaysOnTop: true, fullscreenable: false,
     backgroundColor: '#17181b', title: 'Switchly', icon: trayIcon(),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
-  mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile('index.html');
-  // Closing the window just hides it to the tray; Quit lives in the tray menu.
+  // Click away → tuck back into the tray. Never really closes; Quit is in the tray menu.
+  mainWindow.on('blur', () => { if (!mainWindow.webContents.isDevToolsOpened()) mainWindow.hide(); });
   mainWindow.on('close', (e) => { if (!quitting) { e.preventDefault(); mainWindow.hide(); } });
+}
+
+// Place the panel just above (or beside) the tray icon, inside the work area.
+function positionPanel() {
+  const { screen } = require('electron');
+  const t = tray.getBounds();
+  const area = screen.getDisplayMatching(t).workArea;
+  let x = Math.round(t.x + t.width / 2 - PANEL_W / 2);
+  let y = t.y > area.y + area.height / 2 ? t.y - PANEL_H - 8 : t.y + t.height + 8;
+  x = Math.min(Math.max(x, area.x + 8), area.x + area.width - PANEL_W - 8);
+  y = Math.min(Math.max(y, area.y + 8), area.y + area.height - PANEL_H - 8);
+  mainWindow.setPosition(x, y, false);
 }
 
 function showWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  positionPanel();
   mainWindow.show();
   mainWindow.focus();
+}
+
+function togglePanel() {
+  if (mainWindow && mainWindow.isVisible()) mainWindow.hide(); else showWindow();
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +404,8 @@ function loginArgs() {
 
 function createTray() {
   tray = new Tray(trayIcon());
-  tray.on('click', () => tray.popUpContextMenu());
-  tray.on('double-click', showWindow);
+  tray.on('click', togglePanel);          // left-click: the panel
+  tray.on('right-click', () => tray.popUpContextMenu()); // right-click: quick menu
   refreshTray();
 }
 
@@ -504,8 +524,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     recoverInterruptedSwap(); // heal a login that was interrupted last time
     createTray();
-    // Lives in the tray; the window only opens when asked (not on autostart).
-    createWindow({ show: !process.argv.includes('--hidden') });
+    // Lives in the tray; the panel only opens when the tray icon is clicked.
+    createWindow();
   });
 }
 app.on('before-quit', () => { quitting = true; });
