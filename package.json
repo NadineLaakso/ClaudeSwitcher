@@ -1,0 +1,14 @@
+{
+  "name": "switchly-clone",
+  "version": "1.0.0",
+  "description": "Account switcher / instance manager for Claude Desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

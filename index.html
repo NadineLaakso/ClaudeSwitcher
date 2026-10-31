@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Switchly</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="accent-bar"></div>
+  <main class="wrap">
+    <header class="head">
+      <div>
+        <h1>Your Claude instances</h1>
+        <p class="sub">Each instance has its own profile, session, and color.</p>
+      </div>
+      <button id="settingsBtn" class="gear" title="About / help">❔</button>
+    </header>
+
+    <div id="notFound" class="banner hidden">
+      Claude Desktop wasn't found. Install it from the Microsoft Store, then reopen Switchly.
+    </div>
+
+    <section class="card">
+      <div class="row row-head">
+        <div class="col-name">Name</div>
+        <div class="col-status">Status</div>
+        <div class="col-actions"></div>
+      </div>
+      <div id="list"></div>
+    </section>
+
+    <footer class="foot">
+      <button id="sessionBtn" class="btn">Session Manager</button>
+      <button id="newBtn" class="btn btn-primary">+ New instance</button>
+    </footer>
+  </main>
+
+  <!-- Help dialog -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>How Switchly works</h2>
+      <p class="hint">
+        Each instance launches the real Claude Desktop app with its own isolated
+        profile under <code>%APPDATA%\Claude-…</code>, so different accounts stay
+        logged in and run side by side.
+      </p>
+      <p class="hint">
+        <b>First-time login for a new account (quiet-login):</b> because a running
+        Claude re-claims the <code>claude://</code> sign-in link, Switchly briefly
+        <b>closes every Claude window</b>, temporarily makes the new instance the
+        default profile, and lets you sign in there. The callback lands in the right
+        place, then Switchly swaps everything back and reopens your windows. You only
+        do this <b>once per account</b>; after that the instance runs concurrently with
+        the rest and never needs it again.
+      </p>
+      <p class="hint">
+        <b>Cowork note:</b> the Cowork VM can only run in one account at a time
+        (a Windows limitation); chat and Claude Code work in every instance.
+      </p>
+      <div class="modal-actions"><button id="settingsClose" class="btn btn-primary">Got it</button></div>
+    </div>
+  </div>
+
+  <!-- First-login dialog (quiet-login: brief close + profile swap) -->
+  <div id="loginModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>First-time login</h2>
+      <p class="hint" id="loginMsg"></p>
+      <ol class="steps">
+        <li>Switchly closes all Claude windows and opens only this instance (signed out).</li>
+        <li>Sign in there with this instance's account.</li>
+        <li>Come back and click <b>Done — I'm signed in</b>.</li>
+        <li>Switchly reopens your main Claude next to it.</li>
+      </ol>
+      <p class="hint warn" id="loginWarn" style="display:none"></p>
+      <div class="modal-actions spread">
+        <button id="loginCancel" class="btn">Cancel</button>
+        <button id="loginGo" class="btn btn-primary">Close Claude &amp; open sign-in</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit instance dialog -->
+  <div id="editModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Edit instance</h2>
+      <label class="field-label">Name</label>
+      <input id="editName" type="text" />
+      <label class="field-label">Account (email) — blocks the same account running twice</label>
+      <input id="editAccount" type="text" placeholder="e.g. you@example.com" />
+      <div id="acctWarn" class="warn hidden"></div>
+      <label class="field-label">Color</label>
+      <div id="swatches" class="swatches"></div>
+      <div id="editLoginRow" class="modal-actions" style="justify-content:flex-start">
+        <button id="editLogin" class="btn-login">Log in / switch account</button>
+      </div>
+      <div class="modal-actions spread">
+        <button id="editDelete" class="btn btn-danger">Delete</button>
+        <div>
+          <button id="editCancel" class="btn">Cancel</button>
+          <button id="editSave" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
