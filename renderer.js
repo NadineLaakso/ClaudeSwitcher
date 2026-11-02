@@ -1,4 +1,4 @@
-const api = window.switchly;
+const api = window.claudeSwitcher;
 const PALETTE = ['#9ca3af', '#6366f1', '#22c55e', '#ec4899', '#f59e0b', '#06b6d4', '#a855f7'];
 
 let state = { claudeFound: true, instances: [] };
@@ -135,7 +135,7 @@ loginGo.addEventListener('click', async () => {
     const res = await api.loginBegin(loginTargetId);
     if (!res.ok) { setLoginWarn(res.error || 'Could not start sign-in.'); loginGo.disabled = false; loginGo.textContent = 'Close Claude & open sign-in'; return; }
     loginPhase = 'finish';
-    setLoginWarn('A fresh Claude window is open. Sign in there, then click below. (Don\'t close it yourself — Switchly will.)');
+    setLoginWarn('A fresh Claude window is open. Sign in there, then click below. (Don\'t close it yourself — ClaudeSwitcher will.)');
     loginGo.textContent = "Done — I'm signed in";
     loginGo.disabled = false;
     loginCancel.textContent = 'Cancel sign-in';

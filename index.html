@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Switchly</title>
+  <title>ClaudeSwitcher</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -18,7 +18,7 @@
     </header>
 
     <div id="notFound" class="banner hidden">
-      Claude Desktop wasn't found. Install it from the Microsoft Store, then reopen Switchly.
+      Claude Desktop wasn't found. Install it from the Microsoft Store, then reopen ClaudeSwitcher.
     </div>
 
     <section class="card">
@@ -39,7 +39,7 @@
   <!-- Help dialog -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-card">
-      <h2>How Switchly works</h2>
+      <h2>How ClaudeSwitcher works</h2>
       <p class="hint">
         Each instance launches the real Claude Desktop app with its own isolated
         profile under <code>%APPDATA%\Claude-…</code>, so different accounts stay
@@ -47,10 +47,10 @@
       </p>
       <p class="hint">
         <b>First-time login for a new account (quiet-login):</b> because a running
-        Claude re-claims the <code>claude://</code> sign-in link, Switchly briefly
+        Claude re-claims the <code>claude://</code> sign-in link, ClaudeSwitcher briefly
         <b>closes every Claude window</b>, temporarily makes the new instance the
         default profile, and lets you sign in there. The callback lands in the right
-        place, then Switchly swaps everything back and reopens your windows. You only
+        place, then ClaudeSwitcher swaps everything back and reopens your windows. You only
         do this <b>once per account</b>; after that the instance runs concurrently with
         the rest and never needs it again.
       </p>
@@ -68,10 +68,10 @@
       <h2>First-time login</h2>
       <p class="hint" id="loginMsg"></p>
       <ol class="steps">
-        <li>Switchly closes all Claude windows and opens only this instance (signed out).</li>
+        <li>ClaudeSwitcher closes all Claude windows and opens only this instance (signed out).</li>
         <li>Sign in there with this instance's account.</li>
         <li>Come back and click <b>Done — I'm signed in</b>.</li>
-        <li>Switchly reopens your main Claude next to it.</li>
+        <li>ClaudeSwitcher reopens your main Claude next to it.</li>
       </ol>
       <p class="hint warn" id="loginWarn" style="display:none"></p>
       <div class="modal-actions spread">

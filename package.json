@@ -1,7 +1,7 @@
 {
-  "name": "switchly-clone",
+  "name": "claude-switcher",
   "version": "1.0.0",
-  "description": "Account switcher / instance manager for Claude Desktop",
+  "description": "ClaudeSwitcher — account switcher / instance manager for Claude Desktop",
   "main": "main.js",
   "scripts": {
     "start": "electron ."

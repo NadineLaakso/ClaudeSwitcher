@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
 const { spawn, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -8,19 +8,36 @@ const crypto = require('crypto');
 // ---------------------------------------------------------------------------
 // Paths & persistence
 // ---------------------------------------------------------------------------
-const DATA_DIR = path.join(app.getPath('userData'), 'SwitchlyData');
+const DATA_DIR = path.join(app.getPath('userData'), 'ClaudeSwitcherData');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
-const SWAP_STATE = path.join(DATA_DIR, 'swap.json');
 // Per-instance Claude profiles MUST live directly under %APPDATA% as
 // Claude-<slug>: Claude's Cowork VM service resolves its image from
 // %APPDATA%\<dir> and ignores arbitrary --user-data-dir locations.
 const APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-const DEFAULT_PROFILE = path.join(APPDATA, 'Claude');        // the main/default login
-const BACKUP_PROFILE = path.join(APPDATA, 'Claude.switchly-bak');
 
 function ensureDirs() { fs.mkdirSync(DATA_DIR, { recursive: true }); }
 
-const LOG_PATH = path.join(DATA_DIR, 'switchly.log');
+const LOG_PATH = path.join(DATA_DIR, 'claude-switcher.log');
+
+// One-time migration: this app was formerly "switchly-clone", which put its
+// instance list under a different userData folder. Pull that config forward so a
+// rename never silently drops the user's instances. Guarded by a marker so it
+// runs exactly once and can never overwrite settings the user changes later.
+// (The per-instance Claude-<slug> profile folders live under %APPDATA% directly,
+// so they are unaffected by the rename — only this list needed to move.)
+const LEGACY_CONFIG = path.join(APPDATA, 'switchly-clone', 'SwitchlyData', 'config.json');
+const MIGRATED_MARK = path.join(DATA_DIR, '.migrated');
+function migrateLegacyConfig() {
+  try {
+    if (fs.existsSync(MIGRATED_MARK)) return;
+    ensureDirs();
+    if (fs.existsSync(LEGACY_CONFIG)) {
+      fs.copyFileSync(LEGACY_CONFIG, CONFIG_PATH);
+      log('migrated instance list from legacy switchly-clone config');
+    }
+    fs.writeFileSync(MIGRATED_MARK, new Date().toISOString(), 'utf8');
+  } catch (e) { log('migrateLegacyConfig error: ' + (e.message || e)); }
+}
 function log(msg) {
   try { ensureDirs(); fs.appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${msg}\n`); } catch { /* ignore */ }
 }
@@ -114,11 +131,11 @@ function claudeRunning() {
   } catch (e) { log('claudeRunning tasklist error: ' + (e.message || e)); return false; }
 }
 
-function sleep(ms) { const end = Date.now() + ms; while (Date.now() < end) { /* busy wait, short */ } }
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 // Kill every Claude.exe and wait (up to ~8s) for the processes to clear so file
-// locks on the profile folders are released.
-function closeAllClaude() {
+// locks on the profile folders are released. Async so the panel UI stays responsive.
+async function closeAllClaude() {
   log('closeAllClaude: start; claudeRunning=' + claudeRunning());
   // drop our own tracked handles first
   for (const [, child] of running) { try { child.kill(); } catch { /* ignore */ } }
@@ -131,69 +148,21 @@ function closeAllClaude() {
   }
   for (let i = 0; i < 40; i++) {
     if (!claudeRunning()) { log('closeAllClaude: cleared after ' + i + ' polls'); return true; }
-    sleep(200);
+    await sleep(200);
   }
   log('closeAllClaude: STILL RUNNING after 8s');
   return !claudeRunning();
 }
 
 // ---------------------------------------------------------------------------
-// Profile swap  (the heart of quiet-login)
-//   begin:  move default aside, move the target instance into the default slot,
-//           launch stock Claude so the user signs in there.
-//   finish: move the freshly-signed-in default back to the instance, restore the
-//           real default.
-// A swap.json marker lets us recover if Switchly is closed mid-login.
+// Quiet-login (first-time sign-in for a new instance)
+//   Close every Claude, open ONLY this instance (its own --user-data-dir), so
+//   the claude:// sign-in callback has exactly one window to land in. The
+//   login-watcher reroutes the callback process into the instance's profile.
 // ---------------------------------------------------------------------------
-function readSwap() {
-  try { return JSON.parse(fs.readFileSync(SWAP_STATE, 'utf8')); } catch { return null; }
-}
-function writeSwap(obj) { ensureDirs(); fs.writeFileSync(SWAP_STATE, JSON.stringify(obj, null, 2), 'utf8'); }
-function clearSwap() { try { fs.rmSync(SWAP_STATE, { force: true }); } catch { /* ignore */ } }
-
-function moveWithRetry(from, to) {
-  if (!fs.existsSync(from)) return;
-  let lastErr;
-  for (let i = 0; i < 15; i++) {
-    try { fs.renameSync(from, to); return; }
-    catch (e) { lastErr = e; sleep(200); }
-  }
-  throw lastErr || new Error(`Could not move ${from} -> ${to}`);
-}
-
-// Put profiles back no matter what state a half-finished swap left behind.
-// Invariant: BACKUP_PROFILE existing means a swap is in effect — the default slot
-// currently holds the instance's fresh-login data. With NO backup, nothing was
-// displaced, so we must leave the real default alone and only clear the marker.
-function restoreSwap(targetDir) {
-  if (fs.existsSync(BACKUP_PROFILE)) {
-    // A swap is live: the default slot holds the just-signed-in instance data.
-    // Tuck it into the instance folder (if that slot is free) ...
-    if (targetDir && fs.existsSync(DEFAULT_PROFILE) && !fs.existsSync(targetDir)) {
-      try { moveWithRetry(DEFAULT_PROFILE, targetDir); } catch { /* ignore */ }
-    }
-    // ... then put the real default back.
-    if (!fs.existsSync(DEFAULT_PROFILE)) {
-      try { moveWithRetry(BACKUP_PROFILE, DEFAULT_PROFILE); } catch { /* ignore */ }
-    }
-  }
-  clearSwap();
-}
-
-function recoverInterruptedSwap() {
-  const s = readSwap();
-  if (!s) return;
-  // Switchly died mid-login — make the data folders whole again.
-  closeAllClaude();
-  restoreSwap(s.targetDir);
-}
-
-// First-time login, the way the community tools do it: close every Claude, open
-// ONLY this instance (its own --user-data-dir), so the claude:// sign-in callback
-// has exactly one window to land in. No folder swapping.
-function quietLoginBegin(instance) {
+async function quietLoginBegin(instance) {
   log('loginBegin: instance=' + instance.name + ' slug=' + instance.slug);
-  if (!closeAllClaude()) {
+  if (!(await closeAllClaude())) {
     return { ok: false, error: 'Could not close the running Claude windows. Quit Claude from the tray and try again.' };
   }
   const targetDir = profileDirFor(instance);
@@ -313,7 +282,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: PANEL_W, height: PANEL_H, show: false, frame: false, resizable: false,
     skipTaskbar: true, alwaysOnTop: true, fullscreenable: false,
-    backgroundColor: '#17181b', title: 'Switchly', icon: trayIcon(),
+    backgroundColor: '#17181b', title: 'ClaudeSwitcher', icon: trayIcon(),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   mainWindow.loadFile('index.html');
@@ -378,7 +347,7 @@ function refreshTray() {
         ? { label: 'Stop', click: () => stopInstance(inst.id) }
         : { label: 'Launch', click: () => {
             const r = launchInstance(inst);
-            if (!r.ok) dialog.showErrorBox('Switchly', r.error || 'Could not launch.');
+            if (!r.ok) dialog.showErrorBox('ClaudeSwitcher', r.error || 'Could not launch.');
           } }
     ];
     if (!inst.isDefault) sub.push({ label: 'Log in / switch account…', click: () => openLoginFromTray(inst.id) });
@@ -388,13 +357,13 @@ function refreshTray() {
     ...items,
     { type: 'separator' },
     { label: 'New instance…', click: () => { newInstance(); showWindow(); } },
-    { label: 'Open Switchly', click: showWindow },
+    { label: 'Open ClaudeSwitcher', click: showWindow },
     { type: 'separator' },
     { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings({ args: loginArgs() }).openAtLogin,
       click: (mi) => app.setLoginItemSettings({ openAtLogin: mi.checked, args: loginArgs() }) },
-    { label: 'Quit Switchly', click: () => { quitting = true; app.quit(); } }
+    { label: 'Quit ClaudeSwitcher', click: () => { quitting = true; app.quit(); } }
   ]));
-  tray.setToolTip(`Switchly — ${running.size} running`);
+  tray.setToolTip(`ClaudeSwitcher — ${running.size} running`);
 }
 
 // Unpackaged, Windows must start electron.exe *with this app's folder*.
@@ -416,7 +385,6 @@ ipcMain.handle('get-state', () => {
   const cfg = loadConfig();
   return {
     claudeFound: !!resolveClaudeExe(),
-    swapInProgress: !!readSwap(),
     instances: cfg.instances.map(i => ({
       ...i,
       status: running.has(i.id) ? 'Running' : 'Stopped',
@@ -503,26 +471,16 @@ ipcMain.handle('account-conflict', (_e, { id, account }) => {
   return { conflict: !!other, name: other ? other.name : null };
 });
 
-ipcMain.handle('open-profile-folder', (_e, id) => {
-  const cfg = loadConfig();
-  const inst = cfg.instances.find(i => i.id === id);
-  if (!inst || inst.isDefault) return { ok: false };
-  const dir = profileDirFor(inst);
-  fs.mkdirSync(dir, { recursive: true });
-  shell.openPath(dir);
-  return { ok: true };
-});
-
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
-// One Switchly at a time; starting it again just shows the existing window.
+// One ClaudeSwitcher at a time; starting it again just shows the existing window.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => showWindow());
   app.whenReady().then(() => {
-    recoverInterruptedSwap(); // heal a login that was interrupted last time
+    migrateLegacyConfig(); // restore instances carried over from the old app name
     createTray();
     // Lives in the tray; the panel only opens when the tray icon is clicked.
     createWindow();
